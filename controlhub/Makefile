@@ -161,20 +161,22 @@ sysconfdir = $(prefix)/etc
 install:
 	cd scripts; find . -name "controlhub_*" -exec install -D -m 755 {} $(bindir)/{} \;
 	mkdir -p $(libdir) && cp -r rel/controlhub $(libdir)/
-	install -D -m 644 pkg/rsyslog.d.conf /etc/rsyslog.d/controlhub.conf
-	install -D -m 644 pkg/logrotate.d.conf /etc/logrotate.d/controlhub.conf
+	install -D -m 644 pkg/rsyslog.d.conf $out/etc/rsyslog.d/controlhub.conf
+	install -D -m 644 pkg/logrotate.d.conf $out/etc/logrotate.d/controlhub.conf
 
-	mkdir -p /etc/controlhub/default
-	mv $(libdir)/controlhub/sys.config /etc/controlhub/default/sys.config
-	sed -i "s|\".*core.config\"|\"$(libdir)/controlhub/core.config\"|" /etc/controlhub/default/sys.config
+	mkdir -p $out/etc/controlhub/default
+	mv $(libdir)/controlhub/sys.config $out/etc/controlhub/default/sys.config
+	sed -i "s|\".*core.config\"|\"$(libdir)/controlhub/core.config\"|" $out/etc/controlhub/default/sys.config
 	sed -i "s|CONTROLHUB_CONFIG_FILE_DEFAULT=.*|CONTROLHUB_CONFIG_FILE_DEFAULT=/etc/controlhub/default/sys.config|" $(libdir)/controlhub/bin/controlhub
 	sed -i "s|CONTROLHUB_CONFIG_FILE_OPTIONAL=.*|CONTROLHUB_CONFIG_FILE_OPTIONAL=/etc/controlhub/sys.config|" $(libdir)/controlhub/bin/controlhub
 
 	sed -i "s|CONTROLHUB_BIN_DIR=.*|CONTROLHUB_BIN_DIR=$(libdir)/controlhub/bin|" $(bindir)/controlhub_*
 
-	mkdir -p /var/log/controlhub
-	touch /var/log/controlhub/controlhub.log
-	chmod 644 /var/log/controlhub/controlhub.log
+	mkdir -p $out/var/log/controlhub
+	touch $out/var/log/controlhub/controlhub.log
+	chmod 644 $out/var/log/controlhub/controlhub.log
+	echo "OOOOOOOOOOOOUUUUUUUUUUUUUUUUUTTTTTTTTTTTTTTTTTTTT IIIIIIIIIIIIIIIIIIIISSSSSSSSSSSSSSSSSSSS"
+	echo $out
 ifeq (,$(shell /bin/bash -c "command -v service"))
 	@echo " WARNING : 'service' command not detected! After the installation has finished, you should restart rsyslog to ensure that the ControlHub syslog config is loaded"
 else
