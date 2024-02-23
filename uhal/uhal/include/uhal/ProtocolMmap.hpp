@@ -101,9 +101,9 @@ namespace uhal
         void open();
         void close();
 
-        void read(const uint32_t aAddr, const uint32_t aNrWords, std::vector<uint32_t>& aValues);
+        void read(const uint64_t aAddr, const uint32_t aNrWords, std::vector<uint32_t>& aValues);
 
-        void write(const uint32_t aAddr, const std::vector<std::pair<const uint8_t*, size_t> >& aData);
+        void write(const uint64_t aAddr, const std::vector<std::pair<const uint8_t*, size_t> >& aData);
 
       private:
         std::string mPath;

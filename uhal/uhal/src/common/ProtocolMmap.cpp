@@ -197,7 +197,7 @@ void Mmap::File::close()
 }
 
 
-void Mmap::File::read(const uint32_t aAddr, const uint32_t aNrWords, std::vector<uint32_t>& aValues)
+void Mmap::File::read(const uint64_t aAddr, const uint32_t aNrWords, std::vector<uint32_t>& aValues)
 {
   if (mFd == -1)
     open();
@@ -221,7 +221,7 @@ void Mmap::File::read(const uint32_t aAddr, const uint32_t aNrWords, std::vector
 }
 
 
-void Mmap::File::write(const uint32_t aAddr, const std::vector<std::pair<const uint8_t*, size_t> >& aData)
+void Mmap::File::write(const uint64_t aAddr, const std::vector<std::pair<const uint8_t*, size_t> >& aData)
 {
   if (mFd == -1)
     open();
