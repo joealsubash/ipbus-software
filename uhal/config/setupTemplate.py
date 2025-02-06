@@ -1,6 +1,7 @@
 
 import os, sys
-from distutils.core import setup
+#from distutils.core import setup
+from setuptools import setup
 from os import walk
 from os.path import join, relpath
 
@@ -43,4 +44,3 @@ setup(name=_name,
       zip_safe=False,
       package_data = dict((pkg,['*.so']) for pkg in _packages)
  )
-
