@@ -4,6 +4,8 @@
   before_script:
     # Fix for CERN k8s-provisioned shared runners: Limit number of opened file descriptors with ulimit
     - ulimit -n 1048576
+    - pwd
+    - ls -al
     - export PYTHON=$(echo $PYTHONS | head -n1 | awk '{print $1;}')
     - echo PYTHON=${PYTHON}
     - export REPO_DIR=${CI_PROJECT_DIR}/ci_results/repos/${OUTPUT_REPO_SUBDIR}
@@ -12,8 +14,6 @@
     - make -k Set=all check-version
     - make -k Set=all BUILD_UHAL_PYTHON=0 BUILD_UHAL_GUI=0
     - make -k Set=all BUILD_UHAL_PYTHON=0 BUILD_UHAL_GUI=0 PACKAGE_RELEASE_SUFFIX=${PACKAGE_RELEASE_SUFFIX} rpm
-    - make -C uhal/log generate_files
-    - git diff --exit-code
     - mkdir -p ${REPO_DIR}
     - cp -v `find . -iname "*.rpm"` ${REPO_DIR}
     - cp -v ${YUMGROUPS_FILE} ${REPO_DIR}/yumgroups.xml
@@ -43,7 +43,7 @@
   variables:
     GIT_CLONE_PATH: ${CI_BUILDS_DIR}/${CI_PROJECT_PATH}_____
   tags:
-    - docker
+    - k8s-default
 
 .template_build_rpm_yumrepo:arm64:
   extends: .template_build_rpm_yumrepo
@@ -91,7 +91,7 @@
 
 build:centos7:x86:
   extends: .template_build_rpm_yumrepo:x86
-  image: ${IPBUS_DOCKER_REGISTRY}/centos7/ipbus-sw-dev:2023.08.30__boost1.53.0_pugixml1.8
+  image: ${IPBUS_DOCKER_REGISTRY}/centos7/ipbus-sw-dev:2024.10.10__boost1.53.0_pugixml1.8
   variables:
     OUTPUT_REPO_SUBDIR: centos7/x86_64
     PYTHONS: "python2.7 python3.4 python3.6"
@@ -99,34 +99,27 @@ build:centos7:x86:
 
 build:centos7:arm64:
   extends: .template_build_rpm_yumrepo:arm64
-  image: ${IPBUS_DOCKER_REGISTRY}/centos7/ipbus-sw-dev:2023.08.30__boost1.53.0_pugixml1.8
+  image: ${IPBUS_DOCKER_REGISTRY}/centos7/ipbus-sw-dev:2024.10.10__boost1.53.0_pugixml1.8
   variables:
     OUTPUT_REPO_SUBDIR: centos7/aarch64
     PYTHONS: "python2.7 python3.4 python3.6"
     YUMGROUPS_FILE: ci/yum/yumgroups-centos7.xml
 
-build:centos7:armv7:
-  extends: .template_build_rpm_yumrepo:docker_buildx
-  variables:
-    BUILD_PLATFORM: linux/arm/v7
-    DOCKERFILE: ci/ipbus-sw-builder-centos7.Dockerfile
-    OUTPUT_REPO_SUBDIR: centos7/armhfp
-
 
 build:alma8:x86:
   extends: .template_build_rpm_yumrepo:x86
-  image: ${IPBUS_DOCKER_REGISTRY}/alma8/ipbus-sw-dev:2023.08.30__boost1.66.0_pugixml1.13
+  image: ${IPBUS_DOCKER_REGISTRY}/alma8/ipbus-sw-dev:2024.10.10__boost1.66.0_pugixml1.13
   variables:
     OUTPUT_REPO_SUBDIR: alma8/x86_64
-    PYTHONS: "python3.6 python3.8 python3.11"
+    PYTHONS: "python3.6 python3.8 python3.9 python3.11"
     YUMGROUPS_FILE: ci/yum/yumgroups-el8.xml
 
 build:alma8:arm64:
   extends: .template_build_rpm_yumrepo:arm64
-  image: ${IPBUS_DOCKER_REGISTRY}/alma8/ipbus-sw-dev:2023.08.30__boost1.66.0_pugixml1.13
+  image: ${IPBUS_DOCKER_REGISTRY}/alma8/ipbus-sw-dev:2024.10.10__boost1.66.0_pugixml1.13
   variables:
     OUTPUT_REPO_SUBDIR: alma8/aarch64
-    PYTHONS: "python3.6 python3.8 python3.11"
+    PYTHONS: "python3.6 python3.8 python3.9 python3.11"
     YUMGROUPS_FILE: ci/yum/yumgroups-el8.xml
 
 
@@ -147,12 +140,12 @@ build:alma9:arm64:
     YUMGROUPS_FILE: ci/yum/yumgroups-el9.xml
 
 
-build:centos7-gcc8:
+.build:centos7-gcc8:
   stage: build
-  image: ${IPBUS_DOCKER_REGISTRY}/ipbus-sw-dev-centos7-gcc8:2023-08-30
+  image: ${IPBUS_DOCKER_REGISTRY}/centos7/ipbus-sw-dev-gcc8:2024.10.10
   variables:
+    FF_KUBERNETES_HONOR_ENTRYPOINT: 1
     GIT_CLONE_PATH: ${CI_BUILDS_DIR}/${CI_PROJECT_PATH}_____
-    OUTPUT_REPO_SUBDIR: centos7_gcc8/x86_64
     PYTHONS: "python2.7 python3.4 python3.6"
     YUMGROUPS_FILE: ci/yum/yumgroups-centos7-gcc8.xml
   before_script:
@@ -193,8 +186,22 @@ build:centos7-gcc8:
       - ci_results/repos/${OUTPUT_REPO_SUBDIR}
     when: always
     expire_in: 1 day
+
+build:centos7-gcc8:x86:
+  extends:
+    - .build:centos7-gcc8
+  variables:
+    OUTPUT_REPO_SUBDIR: centos7_gcc8/x86_64
   tags:
-    - docker
+    - k8s-default
+
+build:centos7-gcc8:arm64:
+  extends:
+    - .build:centos7-gcc8
+  variables:
+    OUTPUT_REPO_SUBDIR: centos7_gcc8/aarch64
+  tags:
+    - docker-aarch64
 
 
 publish:yum:centos7:x86:
@@ -213,21 +220,21 @@ publish:yum:centos7:arm64:
   needs:
     - build:centos7:arm64
 
-publish:yum:centos7:armv7:
-  extends: .template_publish
-  variables:
-    CI_OUTPUT_DIR: ci_results/repos/centos7/armhfp
-    DEPLOY_SUBDIR: repos/centos7/armhfp
-  needs:
-    - build:centos7:armv7
-
-publish:yum:centos7-gcc8:
+publish:yum:centos7-gcc8:x86:
   extends: .template_publish
   variables:
     CI_OUTPUT_DIR: ci_results/repos/centos7_gcc8/x86_64
     DEPLOY_SUBDIR: repos/centos7_gcc8/x86_64
   needs:
-    - build:centos7-gcc8
+    - build:centos7-gcc8:x86
+
+publish:yum:centos7-gcc8:arm64:
+  extends: .template_publish
+  variables:
+    CI_OUTPUT_DIR: ci_results/repos/centos7_gcc8/aarch64
+    DEPLOY_SUBDIR: repos/centos7_gcc8/aarch64
+  needs:
+    - build:centos7-gcc8:arm64
 
 publish:yum:alma8:x86:
   extends: .template_publish

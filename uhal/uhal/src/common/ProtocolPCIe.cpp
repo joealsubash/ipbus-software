@@ -61,6 +61,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/date_time/posix_time/posix_time_types.hpp>  // for time_dura...
 
+#include "uhal/detail/PacketFmt.hpp"
 #include "uhal/grammars/URI.hpp"                            // for URI
 #include "uhal/log/LogLevels.hpp"                           // for BaseLogLevel
 #include "uhal/log/log_inserters.integer.hpp"               // for Integer
@@ -71,41 +72,6 @@
 
 
 namespace uhal {
-
-
-PCIe::PacketFmt::PacketFmt(const uint8_t* const aPtr, const size_t aNrBytes) :
-  mData(1, std::pair<const uint8_t*, size_t>(aPtr, aNrBytes))
-{}
-
-
-PCIe::PacketFmt::PacketFmt(const std::vector< std::pair<const uint8_t*, size_t> >& aData) :
-  mData(aData)
-{}
-
-
-PCIe::PacketFmt::~PacketFmt()
-{}
-
-
-std::ostream& operator<<(std::ostream& aStream, const PCIe::PacketFmt& aPacket)
-{
-  std::ios::fmtflags lOrigFlags( aStream.flags() );
-
-  size_t lNrBytesWritten = 0;
-  for (size_t i = 0; i < aPacket.mData.size(); i++) {
-    for (const uint8_t* lPtr = aPacket.mData.at(i).first; lPtr != (aPacket.mData.at(i).first + aPacket.mData.at(i).second); lPtr++, lNrBytesWritten++) {
-      if ((lNrBytesWritten & 3) == 0)
-        aStream << std::endl << "   @ " << std::setw(3) << std::dec << (lNrBytesWritten >> 2) << " :  x";
-      aStream << std::setw(2) << std::hex << uint16_t(*lPtr) << " ";
-    }
-  }
-
-  aStream.flags( lOrigFlags );
-  return aStream;
-}
-
-
-
 
 PCIe::File::File(const std::string& aPath, int aFlags) :
   mPath(aPath),
@@ -319,7 +285,7 @@ bool PCIe::File::haveLock() const
 void PCIe::File::lock()
 {
   if ( flock(mFd, LOCK_EX) == -1 ) {
-    exception::MutexError lExc;
+    detail::MutexError lExc;
     log(lExc, "Failed to lock device file ", Quote(mPath), "; errno=", Integer(errno), ", meaning ", Quote (strerror(errno)));
     throw lExc;
   }
@@ -335,127 +301,6 @@ void PCIe::File::unlock()
   else
     mLocked = false;
 }
-
-
-
-
-PCIe::RobustMutex::RobustMutex() :
-  mCount(0),
-  mSessionActive(false)
-{
-  pthread_mutexattr_t lAttr;
-
-  int s = pthread_mutexattr_init(&lAttr);
-  if (s != 0) {
-    exception::MutexError lExc;
-    log(lExc, "Error code ", Integer(s), " (", strerror(s), ") returned in mutex attr initialisation");
-    throw lExc;
-  }
-
-  s = pthread_mutexattr_setpshared(&lAttr, PTHREAD_PROCESS_SHARED);
-  if (s != 0) {
-    exception::MutexError lExc;
-    log(lExc, "Error code ", Integer(s), " (", strerror(s), ") returned by pthread_mutexattr_setpshared");
-    throw lExc;
-  }
-
-  s = pthread_mutexattr_setrobust(&lAttr, PTHREAD_MUTEX_ROBUST);
-  if (s != 0) {
-    exception::MutexError lExc;
-    log(lExc, "Error code ", Integer(s), " (", strerror(s), ") returned by pthread_mutexattr_setrobust");
-    throw lExc;
-  }
-
-  s = pthread_mutex_init(&mMutex, &lAttr);
-  if (s != 0) {
-    exception::MutexError lExc;
-    log(lExc, "Error code ", Integer(s), " (", strerror(s), ") returned in mutex initialisation");
-    throw lExc;
-  }
-}
-
-
-PCIe::RobustMutex::~RobustMutex()
-{
-}
-
-
-void PCIe::RobustMutex::lock()
-{
-  int s = pthread_mutex_lock(&mMutex);
-  bool lLastOwnerDied = (s == EOWNERDEAD);
-  if (lLastOwnerDied)
-    s = pthread_mutex_consistent(&mMutex);
-
-  if (s != 0) {
-    exception::MutexError lExc;
-    log(lExc, "Error code ", Integer(s), " (", strerror(s), ") returned when ", lLastOwnerDied ? "making mutex state consistent" : "locking mutex");
-    throw lExc;
-  }
-}
-
-
-void PCIe::RobustMutex::unlock()
-{
-  int s = pthread_mutex_unlock(&mMutex);
-  if (s != 0)
-    log(Error(), "Error code ", Integer(s), " (", strerror(s), ") returned when unlocking mutex");
-}
-
-
-uint64_t PCIe::RobustMutex::getCounter() const
-{
-  return mCount;
-}
-
-
-bool PCIe::RobustMutex::isActive() const
-{
-  return mSessionActive;
-}
-
-
-void PCIe::RobustMutex::startSession()
-{
-  mCount++;
-  mSessionActive = true;
-}
-
-void PCIe::RobustMutex::endSession()
-{
-  mSessionActive = false;
-}
-
-
-
-
-template <class T>
-PCIe::SharedObject<T>::SharedObject(const std::string& aName) :
-  mName(aName),
-  mSharedMem(boost::interprocess::open_or_create, aName.c_str(), 1024, 0x0, boost::interprocess::permissions(0666)),
-  mObj(mSharedMem.find_or_construct<T>(boost::interprocess::unique_instance)())
-{
-}
-
-template <class T>
-PCIe::SharedObject<T>::~SharedObject()
-{
-  // boost::interprocess::shared_memory_object::remove(mName.c_str());
-}
-
-template <class T>
-T* PCIe::SharedObject<T>::operator->()
-{
-  return mObj;
-}
-
-template <class T>
-T& PCIe::SharedObject<T>::operator*()
-{
-  return *mObj;
-}
-
-
 
 
 std::string PCIe::getSharedMemName(const std::string& aPath)
@@ -539,7 +384,7 @@ PCIe::~PCIe()
 
 void PCIe::implementDispatch ( std::shared_ptr< Buffers > aBuffers )
 {
-  log(Debug(), "PCIe client (URI: ", Quote(uri()), ") : implementDispatch method called");
+  log(Debug(), "PCIe client ", Quote(id()), ": implementDispatch method called");
 
   if ( ! mConnected )
     connect();
@@ -552,20 +397,20 @@ void PCIe::implementDispatch ( std::shared_ptr< Buffers > aBuffers )
 
 void PCIe::Flush( )
 {
-  log(Debug(), "PCIe client (URI: ", Quote(uri()), ") : Flush method called");
+  log(Debug(), "PCIe client ", Quote(id()), ": Flush method called");
   while ( !mReplyQueue.empty() )
     read();
 
   mDeviceFileHostToFPGA.unlock();
 
-  IPCScopedLock_t lLockGuard(*mIPCMutex);
+  detail::ScopedSessionLock lLockGuard(*mIPCMutex);
   mIPCMutex->endSession();
 }
 
 
 void PCIe::dispatchExceptionHandler()
 {
-  log(Notice(), "PCIe client ", Quote(id()), " (URI: ", Quote(uri()), ") : closing device files since exception detected");
+  log(Info(), "PCIe client ", Quote(id()), ": closing device files since exception detected");
 
   ClientInterface::returnBufferToPool ( mReplyQueue );
 
@@ -597,25 +442,25 @@ uint32_t PCIe::getMaxReplySize()
 
 void PCIe::connect()
 {
-  IPCScopedLock_t lLockGuard(*mIPCMutex);
+  detail::ScopedSessionLock lLockGuard(*mIPCMutex);
   connect(lLockGuard);
 }
 
 
-void PCIe::connect(IPCScopedLock_t& aGuard)
+void PCIe::connect(detail::ScopedSessionLock& aGuard)
 {
   // Read current value of session counter when reading status info from FPGA
   // (So that can check whether this info is up-to-date later on, when sending next request packet)
   mIPCExternalSessionActive = mIPCMutex->isActive() and (not mDeviceFileHostToFPGA.haveLock());
   mIPCSessionCount = mIPCMutex->getCounter();
 
-  log ( Debug() , "PCIe client is opening device file " , Quote ( mDeviceFileFPGAToHost.getPath() ) , " (device-to-client)" );
+  log ( Debug() , "PCIe client ", Quote(id()), ": Opening device file " , Quote ( mDeviceFileFPGAToHost.getPath() ) , " (device-to-client)" );
   mDeviceFileFPGAToHost.open();
 
   std::vector<uint32_t> lValues;
   mDeviceFileFPGAToHost.read(0x0, 4, lValues);
   aGuard.unlock();
-  log ( Debug(), "Read status info (", Integer(lValues.at(0)), ", ", Integer(lValues.at(1)), ", ", Integer(lValues.at(2)), ", ", Integer(lValues.at(3)), "): ", PacketFmt((const uint8_t*)lValues.data(), 4 * lValues.size()));
+  log ( Debug(), "PCIe client ", Quote(id()), ": Read status info from addr 0 (", Integer(lValues.at(0)), ", ", Integer(lValues.at(1)), ", ", Integer(lValues.at(2)), ", ", Integer(lValues.at(3)), "): ", detail::PacketFmt((const uint8_t*)lValues.data(), 4 * lValues.size()));
 
   mNumberOfPages = lValues.at(0);
   if ( (mMaxInFlight == 0) or (mMaxInFlight > mNumberOfPages) )
@@ -639,7 +484,7 @@ void PCIe::connect(IPCScopedLock_t& aGuard)
     throw lExc;
   }
 
-  log ( Debug() , "PCIe client is opening device file " , Quote ( mDeviceFileHostToFPGA.getPath() ) , " (client-to-device)" );
+  log ( Debug() , "PCIe client ", Quote(id()), ": Opening device file " , Quote ( mDeviceFileHostToFPGA.getPath() ) , " (client-to-device)" );
   mDeviceFileHostToFPGA.open();
 
   mDeviceFileFPGAToHost.createBuffer(4 * mPageSize);
@@ -649,7 +494,7 @@ void PCIe::connect(IPCScopedLock_t& aGuard)
     mDeviceFileFPGAEvent.open();
 
   mConnected = true;
-  log ( Info() , "PCIe client connected to device at ", Quote(mDeviceFileHostToFPGA.getPath()), ", ", Quote(mDeviceFileFPGAToHost.getPath()), "; FPGA has ", Integer(mNumberOfPages), " pages, each of size ", Integer(mPageSize), " words, index ", Integer(mIndexNextPage), " should be filled next" );
+  log ( Info() , "PCIe client ", Quote(id()), ": Connected to device at ", Quote(mDeviceFileHostToFPGA.getPath()), ", ", Quote(mDeviceFileFPGAToHost.getPath()), "; FPGA has ", Integer(mNumberOfPages), " pages, each of size ", Integer(mPageSize), " words, index ", Integer(mIndexNextPage), " should be filled next" );
 }
 
 
@@ -667,7 +512,7 @@ void PCIe::write(const std::shared_ptr<Buffers>& aBuffers)
   if (not mDeviceFileHostToFPGA.haveLock()) {
     mDeviceFileHostToFPGA.lock();
 
-    IPCScopedLock_t lGuard(*mIPCMutex);
+    detail::ScopedSessionLock lGuard(*mIPCMutex);
     mIPCMutex->startSession();
     mIPCSessionCount++;
 
@@ -678,16 +523,16 @@ void PCIe::write(const std::shared_ptr<Buffers>& aBuffers)
     }
   }
 
-  log (Info(), "PCIe client ", Quote(id()), " (URI: ", Quote(uri()), ") : writing ", Integer(aBuffers->sendCounter() / 4), "-word packet to page ", Integer(mIndexNextPage), " in ", Quote(mDeviceFileHostToFPGA.getPath()));
+  log (Info(), "PCIe client ", Quote(id()), ": Writing ", Integer(aBuffers->sendCounter() / 4), "-word packet to page ", Integer(mIndexNextPage), " in ", Quote(mDeviceFileHostToFPGA.getPath()));
 
   const uint32_t lHeaderWord = (0x10000 | (((aBuffers->sendCounter() / 4) - 1) & 0xFFFF));
   std::vector<std::pair<const uint8_t*, size_t> > lDataToWrite;
   lDataToWrite.push_back( std::make_pair(reinterpret_cast<const uint8_t*>(&lHeaderWord), sizeof lHeaderWord) );
   lDataToWrite.push_back( std::make_pair(aBuffers->getSendBuffer(), aBuffers->sendCounter()) );
 
-  IPCScopedLock_t lGuard(*mIPCMutex);
+  detail::ScopedSessionLock lGuard(*mIPCMutex);
   mDeviceFileHostToFPGA.write(mIndexNextPage * 4 * mPageSize, lDataToWrite);
-  log (Debug(), "Wrote " , Integer((aBuffers->sendCounter() / 4) + 1), " 32-bit words at address " , Integer(mIndexNextPage * 4 * mPageSize), " ... ", PacketFmt(lDataToWrite));
+  log (Debug(), "PCIe client ", Quote(id()), ": Wrote " , Integer((aBuffers->sendCounter() / 4) + 1), " 32-bit words at address " , Integer(mIndexNextPage * 4 * mPageSize), " ... ", detail::PacketFmt(lDataToWrite));
 
   mIndexNextPage = (mIndexNextPage + 1) % mNumberOfPages;
   mReplyQueue.push_back(aBuffers);
@@ -718,13 +563,13 @@ void PCIe::read()
           throw lExc;
         }
 
-        log(Debug(), "PCIe client ", Quote(id()), " (URI: ", Quote(uri()), ") : Waiting for interrupt; sleeping for ", mSleepDuration.count(), "us");
+        log(Debug(), "PCIe client ", Quote(id()), ": Waiting for interrupt; sleeping for ", mSleepDuration.count(), "us");
         if (mSleepDuration > std::chrono::microseconds(0))
           std::this_thread::sleep_for( mSleepDuration );
 
       } // end of while (true)
 
-      log(Info(), "PCIe client ", Quote(id()), " (URI: ", Quote(uri()), ") : Reading page ", Integer(lPageIndexToRead), " (interrupt received)");
+      log(Info(), "PCIe client ", Quote(id()), ": Reading page ", Integer(lPageIndexToRead), " (interrupt received)");
     }
     else
     {
@@ -733,10 +578,10 @@ void PCIe::read()
       std::vector<uint32_t> lValues;
       while ( true ) {
         // FIXME : Improve by simply adding fileWrite method that takes uint32_t ref as argument (or returns uint32_t)
-        IPCScopedLock_t lGuard(*mIPCMutex);
+        detail::ScopedSessionLock lGuard(*mIPCMutex);
         mDeviceFileFPGAToHost.read(0, (mXdma7seriesWorkaround ? 8 : 4), lValues);
         lHwPublishedPageCount = lValues.at(3);
-        log (Debug(), "Read status info from addr 0 (", Integer(lValues.at(0)), ", ", Integer(lValues.at(1)), ", ", Integer(lValues.at(2)), ", ", Integer(lValues.at(3)), "): ", PacketFmt((const uint8_t*)lValues.data(), 4 * lValues.size()));
+        log (Debug(), "Read status info from addr 0 (", Integer(lValues.at(0)), ", ", Integer(lValues.at(1)), ", ", Integer(lValues.at(2)), ", ", Integer(lValues.at(3)), "): ", detail::PacketFmt((const uint8_t*)lValues.data(), 4 * lValues.size()));
 
         if (lHwPublishedPageCount != mPublishedReplyPageCount) {
           mPublishedReplyPageCount = lHwPublishedPageCount;
@@ -750,13 +595,13 @@ void PCIe::read()
           throw lExc;
         }
 
-        log(Debug(), "PCIe client ", Quote(id()), " (URI: ", Quote(uri()), ") : Trying to read page index ", Integer(lPageIndexToRead), " = count ", Integer(mReadReplyPageCount+1), "; published page count is ", Integer(lHwPublishedPageCount), "; sleeping for ", mSleepDuration.count(), "us");
+        log(Debug(), "PCIe client ", Quote(id()), ": Trying to read page index ", Integer(lPageIndexToRead), " = count ", Integer(mReadReplyPageCount+1), "; published page count is ", Integer(lHwPublishedPageCount), "; sleeping for ", mSleepDuration.count(), "us");
         if (mSleepDuration > std::chrono::microseconds(0))
           std::this_thread::sleep_for( mSleepDuration );
         lValues.clear();
       }
 
-      log(Info(), "PCIe client ", Quote(id()), " (URI: ", Quote(uri()), ") : Reading page ", Integer(lPageIndexToRead), " (published count ", Integer(lHwPublishedPageCount), ", surpasses required, ", Integer(mReadReplyPageCount + 1), ")");
+      log(Info(), "PCIe client ", Quote(id()), ": Reading page ", Integer(lPageIndexToRead), " (published count ", Integer(lHwPublishedPageCount), ", surpasses required, ", Integer(mReadReplyPageCount + 1), ")");
     }
   }
   mReadReplyPageCount++;
@@ -771,16 +616,16 @@ void PCIe::read()
   lNrWordsToRead += 1;
  
   std::vector<uint32_t> lPageContents;
-  IPCScopedLock_t lGuard(*mIPCMutex);
+  detail::ScopedSessionLock lGuard(*mIPCMutex);
   mDeviceFileFPGAToHost.read(4 + lPageIndexToRead * mPageSize, lNrWordsToRead , lPageContents);
   lGuard.unlock();
-  log (Debug(), "Read " , Integer(lNrWordsToRead), " 32-bit words from address " , Integer(16 + lPageIndexToRead * 4 * mPageSize), " ... ", PacketFmt((const uint8_t*)lPageContents.data(), 4 * lPageContents.size()));
+  log (Debug(), "PCIe client ", Quote(id()), ": Read " , Integer(lNrWordsToRead), " 32-bit words from address " , Integer(16 + lPageIndexToRead * 4 * mPageSize), " ... ", detail::PacketFmt((const uint8_t*)lPageContents.data(), 4 * lPageContents.size()));
 
   // PART 2 : Transfer to reply buffer
   const std::deque< std::pair< uint8_t* , uint32_t > >& lReplyBuffers ( lBuffers->getReplyBuffer() );
   size_t lNrWordsInPacket = (lPageContents.at(0) >> 16) + (lPageContents.at(0) & 0xFFFF);
   if (lNrWordsInPacket != (lBuffers->replyCounter() >> 2))
-    log (Warning(), "Expected reply packet to contain ", Integer(lBuffers->replyCounter() >> 2), " words, but it actually contains ", Integer(lNrWordsInPacket), " words");
+    log (Warning(), "PCIe client ", Quote(id()), ": Expected reply packet to contain ", Integer(lBuffers->replyCounter() >> 2), " words, but it actually contains ", Integer(lNrWordsInPacket), " words");
 
   size_t lNrBytesCopied = 0;
   for (const auto& lBuffer: lReplyBuffers)
